@@ -8,8 +8,8 @@ from PIL import Image
 from werkzeug.utils import secure_filename
 
 import pytesseract
-import shutil
-pytesseract.pytesseract.tesseract_cmd = shutil.which("tesseract")
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 app = Flask(__name__)
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
@@ -63,40 +63,29 @@ def extract_fields_using_regex(raw_text):
 @app.route("/")
 def index():
     return render_template("index.html")
+
 @app.route("/upload", methods=["POST"])
 def upload():
-    try:
-        if "image" not in request.files:
-            return jsonify({"error": "No image uploaded"}), 400
+    if "image" not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
 
-        file = request.files["image"]
-        filename = secure_filename(file.filename)
+    file = request.files["image"]
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(file_path)
 
-        file_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(file_path)
+    image = cv2.imread(file_path)
+    raw_text = extract_text(image)
+    extracted_data = extract_fields_using_regex(raw_text)
 
-        image = cv2.imread(file_path)
+    output_file = os.path.join(OUTPUT_FOLDER, f"{filename}.txt")
+    with open(output_file, "w") as f:
+        for key in correct_fields:
+            f.write(f"{key}: {extracted_data.get(key, 'Not Found')}\n")
 
-        if image is None:
-            return jsonify({"error": "Invalid image"}), 400
+    return jsonify({"extracted_data": extracted_data, "download_link": f"/download/{filename}.txt"})
 
-        raw_text = extract_text(image)
-        extracted_data = extract_fields_using_regex(raw_text)
-
-        output_file = os.path.join(OUTPUT_FOLDER, f"{filename}.txt")
-
-        with open(output_file, "w") as f:
-            for key in correct_fields:
-                f.write(f"{key}: {extracted_data.get(key, 'Not Found')}\n")
-
-        return jsonify({
-            "extracted_data": extracted_data,
-            "download_link": f"/download/{filename}.txt"
-        })
-
-    except Exception as e:
-        print("ERROR:", str(e))
-        return jsonify({"error": str(e)}), 500@app.route("/download/<filename>")
+@app.route("/download/<filename>")
 def download(filename):
     return send_file(os.path.join(OUTPUT_FOLDER, filename), as_attachment=True)
 
